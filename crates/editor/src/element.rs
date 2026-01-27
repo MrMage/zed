@@ -1992,7 +1992,9 @@ impl EditorElement {
         // cancel the scrollbar drag.
         if cx.has_active_drag() {
             self.editor.update(cx, |editor, cx| {
-                editor.scroll_manager.reset_scrollbar_state(cx)
+                editor.scroll_manager.update(cx, |scroll_manager, cx| {
+                    scroll_manager.reset_scrollbar_state(cx)
+                })
             });
         }
 
@@ -2021,9 +2023,9 @@ impl EditorElement {
                 non_visible_cursors
                 ||
                 // Scrollmanager
-                editor.scroll_manager.scrollbars_visible()
+                editor.scroll_manager.read(cx).scrollbars_visible()
             }
-            ShowScrollbar::System => self.editor.read(cx).scroll_manager.scrollbars_visible(),
+            ShowScrollbar::System => self.editor.read(cx).scroll_manager.read(cx).scrollbars_visible(),
             ShowScrollbar::Always => true,
             ShowScrollbar::Never => return None,
         };
@@ -2053,7 +2055,7 @@ impl EditorElement {
             right_margin,
             editor_width,
             show_scrollbars,
-            self.editor.read(cx).scroll_manager.active_scrollbar_state(),
+            self.editor.read(cx).scroll_manager.read(cx).active_scrollbar_state(),
             window,
         ))
     }
@@ -2113,7 +2115,7 @@ impl EditorElement {
 
         let thumb_state = self
             .editor
-            .read_with(cx, |editor, _| editor.scroll_manager.minimap_thumb_state());
+            .read_with(cx, |editor, cx| editor.scroll_manager.read(cx).minimap_thumb_state());
 
         let show_thumb = match minimap_settings.thumb {
             MinimapThumb::Always => true,
@@ -5239,7 +5241,7 @@ impl EditorElement {
                 snapshot,
                 visible_display_row_range.clone(),
                 max_size,
-                &editor.text_layout_details(window),
+                &editor.text_layout_details(window, cx),
                 window,
                 cx,
             )
@@ -6681,7 +6683,7 @@ impl EditorElement {
         let Some(scrollbars_layout) = layout.scrollbars_layout.take() else {
             return;
         };
-        let any_scrollbar_dragged = self.editor.read(cx).scroll_manager.any_scrollbar_dragged();
+        let any_scrollbar_dragged = self.editor.read(cx).scroll_manager.read(cx).any_scrollbar_dragged();
 
         for (scrollbar_layout, axis) in scrollbars_layout.iter_scrollbars() {
             let hitbox = &scrollbar_layout.hitbox;
@@ -6771,7 +6773,7 @@ impl EditorElement {
                     if let Some((scrollbar_layout, axis)) = event
                         .pressed_button
                         .filter(|button| *button == MouseButton::Left)
-                        .and(editor.scroll_manager.dragging_scrollbar_axis())
+                        .and(editor.scroll_manager.read(cx).dragging_scrollbar_axis())
                         .and_then(|axis| {
                             scrollbars_layout
                                 .iter_scrollbars()
@@ -6798,23 +6800,27 @@ impl EditorElement {
                             editor.set_scroll_position(position, window, cx);
                         }
 
-                        editor.scroll_manager.show_scrollbars(window, cx);
+                        editor.show_scrollbars(window, cx);
                         cx.stop_propagation();
                     } else if let Some((layout, axis)) = scrollbars_layout
                         .get_hovered_axis(window)
                         .filter(|_| !event.dragging())
                     {
                         if layout.thumb_hovered(&event.position) {
-                            editor
-                                .scroll_manager
-                                .set_hovered_scroll_thumb_axis(axis, cx);
+                            editor.scroll_manager.update(cx, |scroll_manager, cx| {
+                                scroll_manager.set_hovered_scroll_thumb_axis(axis, cx);
+                            });
                         } else {
-                            editor.scroll_manager.reset_scrollbar_state(cx);
+                            editor.scroll_manager.update(cx, |scroll_manager, cx| {
+                                scroll_manager.reset_scrollbar_state(cx);
+                            });
                         }
 
-                        editor.scroll_manager.show_scrollbars(window, cx);
+                        editor.show_scrollbars(window, cx);
                     } else {
-                        editor.scroll_manager.reset_scrollbar_state(cx);
+                        editor.scroll_manager.update(cx, |scroll_manager, cx| {
+                            scroll_manager.reset_scrollbar_state(cx);
+                        });
                     }
 
                     mouse_position = event.position;
@@ -6832,11 +6838,13 @@ impl EditorElement {
 
                     editor.update(cx, |editor, cx| {
                         if let Some((_, axis)) = scrollbars_layout.get_hovered_axis(window) {
-                            editor
-                                .scroll_manager
-                                .set_hovered_scroll_thumb_axis(axis, cx);
+                            editor.scroll_manager.update(cx, |scroll_manager, cx| {
+                                scroll_manager.set_hovered_scroll_thumb_axis(axis, cx);
+                            });
                         } else {
-                            editor.scroll_manager.reset_scrollbar_state(cx);
+                            editor.scroll_manager.update(cx, |scroll_manager, cx| {
+                                scroll_manager.reset_scrollbar_state(cx);
+                            });
                         }
                         cx.stop_propagation();
                     });
@@ -6868,9 +6876,9 @@ impl EditorElement {
                     };
 
                     editor.update(cx, |editor, cx| {
-                        editor
-                            .scroll_manager
-                            .set_dragged_scroll_thumb_axis(axis, cx);
+                        editor.scroll_manager.update(cx, |scroll_manager, cx| {
+                            scroll_manager.set_dragged_scroll_thumb_axis(axis, cx);
+                        });
 
                         let event_position = event.position.along(axis);
 
@@ -6890,7 +6898,7 @@ impl EditorElement {
 
                             editor.set_scroll_position(position, window, cx);
                         } else {
-                            editor.scroll_manager.show_scrollbars(window, cx);
+                            editor.show_scrollbars(window, cx);
                         }
 
                         cx.stop_propagation();
@@ -7229,7 +7237,7 @@ impl EditorElement {
     fn paint_minimap(&self, layout: &mut EditorLayout, window: &mut Window, cx: &mut App) {
         if let Some(mut layout) = layout.minimap.take() {
             let minimap_hitbox = layout.thumb_layout.hitbox.clone();
-            let dragging_minimap = self.editor.read(cx).scroll_manager.is_dragging_minimap();
+            let dragging_minimap = self.editor.read(cx).scroll_manager.read(cx).is_dragging_minimap();
 
             window.paint_layer(layout.thumb_layout.hitbox.bounds, |window| {
                 window.with_element_namespace("minimap", |window| {
@@ -7307,7 +7315,7 @@ impl EditorElement {
 
                     editor.update(cx, |editor, cx| {
                         if event.pressed_button == Some(MouseButton::Left)
-                            && editor.scroll_manager.is_dragging_minimap()
+                            && editor.scroll_manager.read(cx).is_dragging_minimap()
                         {
                             let old_position = mouse_position.along(minimap_axis);
                             let new_position = event.position.along(minimap_axis);
@@ -7327,14 +7335,16 @@ impl EditorElement {
                             }
                             cx.stop_propagation();
                         } else if minimap_hitbox.is_hovered(window) {
-                            editor.scroll_manager.set_is_hovering_minimap_thumb(
-                                !event.dragging()
-                                    && layout
-                                        .thumb_layout
-                                        .thumb_bounds
-                                        .is_some_and(|bounds| bounds.contains(&event.position)),
-                                cx,
-                            );
+                            editor.scroll_manager.update(cx, |scroll_manager, cx| {
+                                scroll_manager.set_is_hovering_minimap_thumb(
+                                    !event.dragging()
+                                        && layout
+                                            .thumb_layout
+                                            .thumb_bounds
+                                            .is_some_and(|bounds| bounds.contains(&event.position)),
+                                    cx,
+                                );
+                            });
 
                             // Stop hover events from propagating to the
                             // underlying editor if the minimap hitbox is hovered
@@ -7342,7 +7352,9 @@ impl EditorElement {
                                 cx.stop_propagation();
                             }
                         } else {
-                            editor.scroll_manager.hide_minimap_thumb(cx);
+                            editor.scroll_manager.update(cx, |scroll_manager, cx| {
+                                scroll_manager.hide_minimap_thumb(cx);
+                            });
                         }
                         mouse_position = event.position;
                     });
@@ -7359,15 +7371,19 @@ impl EditorElement {
 
                         editor.update(cx, |editor, cx| {
                             if minimap_hitbox.is_hovered(window) {
-                                editor.scroll_manager.set_is_hovering_minimap_thumb(
-                                    layout
-                                        .thumb_layout
-                                        .thumb_bounds
-                                        .is_some_and(|bounds| bounds.contains(&event.position)),
-                                    cx,
-                                );
+                                editor.scroll_manager.update(cx, |scroll_manager, cx| {
+                                    scroll_manager.set_is_hovering_minimap_thumb(
+                                        layout
+                                            .thumb_layout
+                                            .thumb_bounds
+                                            .is_some_and(|bounds| bounds.contains(&event.position)),
+                                        cx,
+                                    );
+                                });
                             } else {
-                                editor.scroll_manager.hide_minimap_thumb(cx);
+                                editor.scroll_manager.update(cx, |scroll_manager, cx| {
+                                    scroll_manager.hide_minimap_thumb(cx);
+                                });
                             }
                             cx.stop_propagation();
                         });
@@ -7409,7 +7425,9 @@ impl EditorElement {
                                 editor.set_scroll_position(scroll_position, window, cx);
                             }
 
-                            editor.scroll_manager.set_is_dragging_minimap(cx);
+                            editor.scroll_manager.update(cx, |scroll_manager, cx| {
+                                scroll_manager.set_is_dragging_minimap(cx);
+                            });
                             cx.stop_propagation();
                         });
                     }
@@ -7517,7 +7535,7 @@ impl EditorElement {
                             / ScrollPixelOffset::from(line_height);
                         let mut scroll_position =
                             point(x, y).clamp(&point(0., 0.), &position_map.scroll_max);
-                        let forbid_vertical_scroll = editor.scroll_manager.forbid_vertical_scroll();
+                        let forbid_vertical_scroll = editor.scroll_manager.read(cx).forbid_vertical_scroll();
                         if forbid_vertical_scroll {
                             scroll_position.y = current_scroll_position.y;
                         }
@@ -9551,7 +9569,7 @@ impl Element for EditorElement {
                             window,
                             cx,
                         );
-                        editor.set_visible_column_count(f64::from(editor_width / em_advance));
+                        editor.set_visible_column_count(f64::from(editor_width / em_advance), cx);
 
                         if matches!(
                             editor.mode,
@@ -9637,7 +9655,9 @@ impl Element for EditorElement {
                         autoscroll_containing_element,
                         needs_horizontal_autoscroll,
                     ) = self.editor.update(cx, |editor, cx| {
-                        let autoscroll_request = editor.scroll_manager.take_autoscroll_request();
+                        let autoscroll_request = editor.scroll_manager.update(cx, |scroll_manager, _| {
+                            scroll_manager.take_autoscroll_request()
+                        });
 
                         let autoscroll_containing_element =
                             autoscroll_request.is_some() || editor.has_pending_selection();
@@ -10229,7 +10249,10 @@ impl Element for EditorElement {
                     );
 
                     self.editor.update(cx, |editor, cx| {
-                        if editor.scroll_manager.clamp_scroll_left(scroll_max.x) {
+                        let clamped = editor.scroll_manager.update(cx, |scroll_manager, _| {
+                            scroll_manager.clamp_scroll_left(scroll_max.x)
+                        });
+                        if clamped {
                             scroll_position.x = scroll_position.x.min(scroll_max.x);
                         }
 
@@ -10277,10 +10300,12 @@ impl Element for EditorElement {
                     } else {
                         None
                     };
-                    self.editor.update(cx, |editor, _| {
-                        editor.scroll_manager.set_sticky_header_line_count(
-                            sticky_headers.as_ref().map_or(0, |h| h.lines.len()),
-                        );
+                    self.editor.update(cx, |editor, cx| {
+                        editor.scroll_manager.update(cx, |scroll_manager, _| {
+                            scroll_manager.set_sticky_header_line_count(
+                                sticky_headers.as_ref().map_or(0, |h| h.lines.len()),
+                            );
+                        });
                     });
                     let indent_guides = self.layout_indent_guides(
                         content_origin,
