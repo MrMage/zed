@@ -405,11 +405,13 @@ impl SplittableEditor {
             multibuffer.set_all_diff_hunks_expanded(cx);
             multibuffer
         });
+        let shared_scroll_manager = self.rhs_editor.read(cx).scroll_manager.clone();
         let lhs_editor = cx.new(|cx| {
             let mut editor =
                 Editor::for_multibuffer(lhs_multibuffer.clone(), Some(project.clone()), window, cx);
             editor.number_deleted_lines = true;
             editor.set_delegate_expand_excerpts(true);
+            editor.scroll_manager = shared_scroll_manager;
             editor
         });
         let lhs_pane = cx.new(|cx| {
