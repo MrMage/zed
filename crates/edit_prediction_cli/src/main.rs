@@ -1132,9 +1132,8 @@ async fn handle_error(
 
         let cursor_path = example
             .repo_name()
-            .unwrap()
-            .worktree_path()
-            .join(&example.spec.cursor_path);
+            .map(|repo_name| repo_name.worktree_path().join(&example.spec.cursor_path))
+            .unwrap_or_else("*unknown*");
         msg = format!(
             indoc::indoc! {"
                 While processing \"{}\":
